@@ -4,10 +4,12 @@ import { fetchApi } from "@/fetchApi";
 import { API_CREATE_RESERVATION_URL } from "@/apiUrls";
 
 export interface CreateReservationParams {
-  date: string;
-  time: string;
   roomId: string;
-  email: string;
+  startDate: string;
+  endDate: string;
+  name: string;
+  description: string;
+  attendees: string[];
 }
 
 export interface CreateReservationResponse {
@@ -25,10 +27,14 @@ export function useCreateReservation() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CreateReservationResponse | null>(null);
-
-  const createReservation = async (
-    params: CreateReservationParams
-  ): Promise<CreateReservationResult> => {
+  const createReservation = async (params: {
+    roomId: string;
+    startDate: string;
+    endDate: string;
+    name: string;
+    description: string;
+    attendees: string[];
+  }): Promise<CreateReservationResult> => {
     setLoading(true);
     setError(null);
     setData(null);
@@ -42,10 +48,12 @@ export function useCreateReservation() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            date: params.date,
-            time: params.time,
             roomId: params.roomId,
-            email: params.email,
+            startDate: params.startDate,
+            endDate: params.endDate,
+            name: params.name,
+            description: params.description,
+            attendees: params.attendees,
           }),
         }
       );

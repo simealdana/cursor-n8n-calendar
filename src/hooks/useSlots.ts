@@ -25,6 +25,7 @@ interface UseSlotsResult {
   slots: SlotsResponse | null;
   loading: boolean;
   error: string | null;
+  refresh: () => Promise<void>;
 }
 
 export function useSlots({ date, roomId }: UseSlotsParams): UseSlotsResult {
@@ -32,8 +33,7 @@ export function useSlots({ date, roomId }: UseSlotsParams): UseSlotsResult {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Don't fetch if we don't have both required parameters
+  const fetchSlots = async () => {
     if (!date || !roomId) {
       setSlots(null);
       setLoading(false);
@@ -41,32 +41,27 @@ export function useSlots({ date, roomId }: UseSlotsParams): UseSlotsResult {
       return;
     }
 
-    let isMounted = true;
     setLoading(true);
     setError(null);
 
-    const url = `${API_SLOTS_URL}?date=${date}&roomId=${encodeURIComponent(
-      roomId
-    )}`;
+    try {
+      const url = `${API_SLOTS_URL}?date=${date}&roomId=${encodeURIComponent(
+        roomId
+      )}`;
+      const data = await fetchApi<SlotsResponse>(url);
+      setSlots(data || null);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to fetch slots";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetchApi<SlotsResponse>(url)
-      .then((data) => {
-        if (isMounted) {
-          setSlots(data || null);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err.message || "Failed to fetch slots");
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
+  useEffect(() => {
+    fetchSlots();
   }, [date, roomId]);
 
-  return { slots, loading, error };
+  return { slots, loading, error, refresh: fetchSlots };
 }

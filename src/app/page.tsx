@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Calendar,
   Clock,
@@ -13,6 +13,13 @@ import {
 import { useRooms } from "@/hooks/useRooms";
 import { useSlots } from "@/hooks/useSlots";
 import { useCreateReservation } from "@/hooks/useCreateReservation";
+import { useToast } from "@/hooks/useToast";
+import { ToastContainer } from "@/components/ToastContainer";
+import {
+  getSelectedDateForAPIAtMidnight,
+  createTimeSlotString,
+  getSelectedSlotDates,
+} from "@/utils/dateHelpers";
 
 const Home = () => {
   const [selectedDate, setSelectedDate] = useState(
@@ -24,9 +31,9 @@ const Home = () => {
   );
   const [selectedTime, setSelectedTime] = useState("");
   const [selectedRoom, setSelectedRoom] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState<string>("");
   const [showFeedback, setShowFeedback] = useState<string | null>(null);
-  const [showCalendar, setShowCalendar] = useState(false);
+  const [showCalendar, setShowCalendar] = useState<boolean>(false);
 
   const { rooms, loading, error } = useRooms();
   const {
@@ -34,52 +41,41 @@ const Home = () => {
     loading: reservationLoading,
     error: reservationError,
   } = useCreateReservation();
-
-  const getSelectedDateForAPI = (): string => {
-    const dateParts = selectedDate.split(" ");
-    const month = dateParts[1];
-    const day = dateParts[2];
-    const year = new Date().getFullYear();
-
-    const date = new Date(`${month} ${day}, ${year}`);
-    date.setHours(0, 0, 0, 0);
-    return date.toISOString();
-  };
-
-  React.useEffect(() => {
-    if (rooms.length > 0 && !selectedRoom) {
-      setSelectedRoom(rooms[0].id);
-    }
-  }, [rooms, selectedRoom]);
-
-  React.useEffect(() => {
-    setSelectedTime("");
-  }, [selectedDate]);
+  const { toasts, showError, showSuccess, removeToast } = useToast();
 
   const {
     slots,
     loading: slotsLoading,
     error: slotsError,
+    refresh: refreshSlots,
   } = useSlots({
-    date: getSelectedDateForAPI(),
+    date: getSelectedDateForAPIAtMidnight(selectedDate, "America/New_York"),
     roomId: selectedRoom,
   });
 
-  const createTimeSlotString = (startDate: string, endDate: string): string => {
-    const startTime = new Date(startDate).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    const endTime = new Date(endDate).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    return `${startTime} – ${endTime}`;
-  };
+  useEffect(() => {
+    if (rooms.length > 0 && !selectedRoom) {
+      setSelectedRoom(rooms[0].id);
+    }
+  }, [rooms, selectedRoom]);
 
-  const timeSlots = React.useMemo(() => {
+  useEffect(() => {
+    setSelectedTime("");
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (slotsError) {
+      showError(slotsError);
+    }
+  }, [slotsError, showError]);
+
+  useEffect(() => {
+    if (reservationError) {
+      showError(reservationError);
+    }
+  }, [reservationError, showError]);
+
+  const timeSlots = useMemo(() => {
     if (
       !slots ||
       !slots.slots ||
@@ -153,28 +149,28 @@ const Home = () => {
       setShowFeedback("error");
       return;
     }
+    const slotDates = getSelectedSlotDates(selectedTime, selectedDate);
+    if (!slotDates) {
+      showError("Invalid time slot selected");
+      return;
+    }
 
     const result = await createReservation({
-      date: getSelectedDateForAPI(),
-      time: selectedTime,
       roomId: selectedRoom,
-      email: email,
+      startDate: slotDates.startDate,
+      endDate: slotDates.endDate,
+      name: "Meeting",
+      description: "Reservation created via web interface",
+      attendees: [email],
     });
 
     if (result.success) {
-      setShowFeedback("success");
-      setTimeout(() => {
-        setShowFeedback(null);
-        setSelectedDate("");
-        setSelectedTime("");
-        setSelectedRoom("");
-        setEmail("");
-      }, 3000);
+      showSuccess("Reservation created successfully!");
+      await refreshSlots();
+      setSelectedTime("");
+      setEmail("");
     } else {
-      setShowFeedback("error");
-      setTimeout(() => {
-        setShowFeedback(null);
-      }, 3000);
+      showError(result.error || "Failed to create reservation");
     }
   };
 
@@ -253,18 +249,6 @@ const Home = () => {
               </div>
             )}
 
-            {slotsError && (
-              <div className="text-center py-8 text-red-500">
-                Error loading slots: {slotsError}
-              </div>
-            )}
-
-            {reservationError && (
-              <div className="text-center py-4 text-red-500 text-sm">
-                Reservation error: {reservationError}
-              </div>
-            )}
-
             {!slotsLoading && !slotsError && timeSlots.length === 0 && (
               <div className="text-center py-8 text-slate-500">
                 No time slots available
@@ -272,26 +256,28 @@ const Home = () => {
             )}
 
             {!slotsLoading && timeSlots.length > 0 && (
-              <div className="grid grid-cols-2 gap-3">
-                {timeSlots.map((slot) => (
-                  <button
-                    key={slot.id}
-                    onClick={() => setSelectedTime(slot.timeString)}
-                    disabled={slot.status === "reserved"}
-                    className={`p-3 rounded-lg border-2 transition-all text-sm font-medium ${
-                      selectedTime === slot.timeString
-                        ? "bg-blue-500 border-blue-500 text-white"
-                        : slot.status === "reserved"
-                        ? "bg-red-50 border-red-200 text-red-400 cursor-not-allowed"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
-                    }`}
-                  >
-                    {slot.timeString}
-                    {slot.status === "reserved" && (
-                      <div className="text-xs mt-1">Occupied</div>
-                    )}
-                  </button>
-                ))}
+              <div className="max-h-64 overflow-y-auto pr-2">
+                <div className="grid grid-cols-2 gap-3">
+                  {timeSlots.map((slot) => (
+                    <button
+                      key={slot.id}
+                      onClick={() => setSelectedTime(slot.timeString)}
+                      disabled={slot.status === "reserved"}
+                      className={`p-3 rounded-lg border-2 transition-all text-sm font-medium ${
+                        selectedTime === slot.timeString
+                          ? "bg-blue-500 border-blue-500 text-white"
+                          : slot.status === "reserved"
+                          ? "bg-red-50 border-red-200 text-red-400 cursor-not-allowed"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50"
+                      }`}
+                    >
+                      {slot.timeString}
+                      {slot.status === "reserved" && (
+                        <div className="text-xs mt-1">Occupied</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -407,6 +393,8 @@ const Home = () => {
           </div>
         </div>
       )}
+
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 };

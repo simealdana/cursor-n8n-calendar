@@ -1,0 +1,822 @@
+{
+  "name": "calendar_api",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-id-1",
+              "leftValue": "={{ $json.query.date }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "condition-id-2",
+              "leftValue": "={{ $json.query.roomId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [180, -160],
+      "id": "node-id-1",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "errorMessage": "RoomId and date is required"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [460, -140],
+      "id": "node-id-2",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "condition-id-3",
+                    "leftValue": "={{ $json.roomId }}",
+                    "rightValue": "={{ $json.roomId }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cover_io"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.roomId }}",
+                    "rightValue": "user@example.com",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "condition-id-4"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "personal_room"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [660, -280],
+      "id": "node-id-3",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "calendar@example.com",
+          "mode": "list",
+          "cachedResultName": "calendar@example.com"
+        },
+        "timeMin": "={{ $json.startDate }}",
+        "timeMax": "={{ $json.endDate }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [900, -420],
+      "id": "node-id-4",
+      "name": "Google Calendar2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "credential-id-1",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const { date, roomId } = $input.first().json.query;\n\nconst startDate = new Date(date);\nstartDate.setUTCHours(0, 0, 0, 0);\n\nconst endDate = new Date(date);\nendDate.setUTCDate(endDate.getUTCDate() + 1);\nendDate.setUTCHours(0, 0, 0, 0);\n\nreturn {\n  roomId: roomId,\n  startDate: startDate.toISOString(),\n  endDate: endDate.toISOString()\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, -280],
+      "id": "node-id-5",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst googleCalendarEvents = items?.map(item => item.json).filter(item => item && Object.keys(item).length > 0) || [];\n\nfunction generateHourlySlots(events) {\n  const slots = [];\n  const busyHours = new Map();\n  \n  let referenceDate = new Date().toISOString().substring(0, 10);\n  let timezoneOffset = '-04:00'; // Default Caracas timezone\n  \n  if (events && events.length > 0) {\n    referenceDate = events[0].start.dateTime.substring(0, 10);\n    timezoneOffset = events[0].start.dateTime.substring(19);\n    \n    events.forEach(event => {\n      const startHour = parseInt(event.start.dateTime.substring(11, 13));\n      const endHour = parseInt(event.end.dateTime.substring(11, 13));\n      const endMinutes = parseInt(event.end.dateTime.substring(14, 16));\n      \n      for (let hour = startHour; hour <= endHour; hour++) {\n        if (hour === endHour && endMinutes === 0) continue;\n        \n        busyHours.set(hour, {\n          id: event.id,\n          name: event.summary || 'Untitled meeting',\n          description: event.description || event.summary || 'No description available',\n          startDate: event.start.dateTime,\n          endDate: event.end.dateTime\n        });\n      }\n    });\n  }\n  \n  for (let hour = 0; hour < 24; hour++) {\n    const hourStr = hour.toString().padStart(2, '0');\n    const nextHour = (hour + 1) % 24;\n    const nextHourStr = nextHour.toString().padStart(2, '0');\n    \n    if (busyHours.has(hour)) {\n      const eventData = busyHours.get(hour);\n      slots.push({\n        id: eventData.id,\n        name: eventData.name,\n        description: eventData.description,\n        status: 'reserved',\n        startDate: eventData.startDate,\n        endDate: eventData.endDate\n      });\n    } else {\n      slots.push({\n        id: `available-slot-${hour}`,\n        name: `${hourStr}:00 - ${nextHourStr}:00`,\n        description: 'Available for booking',\n        status: 'available',\n        startDate: `${referenceDate}T${hourStr}:00:00${timezoneOffset}`,\n        endDate: hour === 23 \n          ? `${getNextDay(referenceDate)}T${nextHourStr}:00:00${timezoneOffset}`\n          : `${referenceDate}T${nextHourStr}:00:00${timezoneOffset}`\n      });\n    }\n  }\n  \n  return { slots };\n}\n\nfunction getNextDay(dateStr) {\n  const date = new Date(dateStr);\n  date.setDate(date.getDate() + 1);\n  return date.toISOString().substring(0, 10);\n}\n\nreturn generateHourlySlots(googleCalendarEvents);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, -420],
+      "id": "node-id-6",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "path": "slots",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, -160],
+      "id": "node-id-7",
+      "name": "get_slots",
+      "webhookId": "webhook-id-1"
+    },
+    {
+      "parameters": {
+        "path": "slot",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, 180],
+      "id": "node-id-8",
+      "name": "get_slot",
+      "webhookId": "webhook-id-2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-id-5",
+              "leftValue": "={{ $json.body.roomId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "condition-id-6",
+              "leftValue": "={{ $json.body.startDate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "condition-id-7",
+              "leftValue": "={{ $json.body.endDate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [180, 500],
+      "id": "node-id-9",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "errorMessage": "RoomId and startDate and endDate are required"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [440, 560],
+      "id": "node-id-10",
+      "name": "Stop and Error1"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "calendar@example.com",
+          "mode": "list",
+          "cachedResultName": "calendar@example.com"
+        },
+        "timeMin": "={{ $json.body.startDate }}",
+        "timeMax": "={{ $json.body.endDate }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [440, 320],
+      "id": "node-id-11",
+      "name": "Google Calendar",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "credential-id-1",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-id-8",
+              "leftValue": "={{ $json.available }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [660, 320],
+      "id": "node-id-12",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "errorMessage": "Slot is not avaliable"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [1100, 420],
+      "id": "node-id-13",
+      "name": "Stop and Error2"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "calendar@example.com",
+          "mode": "list",
+          "cachedResultName": "calendar@example.com"
+        },
+        "start": "={{ $json.startDate }}",
+        "end": "={{ $json.endDate }}",
+        "additionalFields": {
+          "attendees": ["={{ $json.attendees[0] }}"],
+          "description": "={{ $json.description }}",
+          "location": "America/Caracas"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [1100, 220],
+      "id": "node-id-14",
+      "name": "Google Calendar1",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "credential-id-1",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assignment-id-1",
+              "name": "roomId",
+              "value": "={{ $('post_slot').item.json.body.roomId }}",
+              "type": "string"
+            },
+            {
+              "id": "assignment-id-2",
+              "name": "startDate",
+              "value": "={{ $('post_slot').item.json.body.startDate }}",
+              "type": "string"
+            },
+            {
+              "id": "assignment-id-3",
+              "name": "endDate",
+              "value": "={{ $('post_slot').item.json.body.endDate }}",
+              "type": "string"
+            },
+            {
+              "id": "assignment-id-4",
+              "name": "name",
+              "value": "={{ $('post_slot').item.json.body.name }}",
+              "type": "string"
+            },
+            {
+              "id": "assignment-id-5",
+              "name": "description",
+              "value": "={{ $('post_slot').item.json.body.description }}",
+              "type": "string"
+            },
+            {
+              "id": "assignment-id-6",
+              "name": "attendees",
+              "value": "={{ $('post_slot').item.json.body.attendees }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 220],
+      "id": "node-id-15",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "httpMethod": "DELETE",
+        "path": "slot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, 940],
+      "id": "node-id-16",
+      "name": "delete_slot",
+      "webhookId": "webhook-id-3"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, 500],
+      "id": "node-id-17",
+      "name": "post_slot",
+      "webhookId": "webhook-id-2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "condition-id-9",
+              "leftValue": "={{ $json.query.slotId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [140, 940],
+      "id": "node-id-18",
+      "name": "If3"
+    },
+    {
+      "parameters": {
+        "errorMessage": "SlotId is required"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [360, 1040],
+      "id": "node-id-19",
+      "name": "Stop and Error3"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "calendar@example.com",
+          "mode": "list",
+          "cachedResultName": "calendar@example.com"
+        },
+        "eventId": "={{ $json.query.slotId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [360, 840],
+      "id": "node-id-20",
+      "name": "Google Calendar3",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "credential-id-1",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [1380, -420],
+      "id": "node-id-21",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [1320, 220],
+      "id": "node-id-22",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [580, 840],
+      "id": "node-id-23",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "path": "rooms",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-40, 1500],
+      "id": "node-id-24",
+      "name": "Webhook",
+      "webhookId": "webhook-id-4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rooms = [\n  {\n    id:'calendar@example.com',\n    name:'example-room',\n    email:'calendar@example.com'\n  }\n]\n\nreturn [{\n  rooms\n}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [180, 1500],
+      "id": "node-id-25",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [400, 1500],
+      "id": "node-id-26",
+      "name": "Respond to Webhook3"
+    }
+  ],
+  "pinData": {
+    "get_slots": [
+      {
+        "json": {
+          "headers": {
+            "host": "example-host.com",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "es-ES,es;q=0.9,en;q=0.8",
+            "content-type": "application/json",
+            "origin": "http://localhost:3000",
+            "priority": "u=1, i",
+            "referer": "http://localhost:3000/",
+            "sec-ch-ua": "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "127.0.0.1",
+            "x-forwarded-host": "example-host.com",
+            "x-forwarded-proto": "https",
+            "x-railway-edge": "example/edge",
+            "x-railway-request-id": "example-request-id",
+            "x-real-ip": "127.0.0.1",
+            "x-request-start": "1234567890123"
+          },
+          "params": {},
+          "query": {
+            "date": "2025-01-01T00:00:00.000Z",
+            "roomId": "calendar@example.com"
+          },
+          "body": {},
+          "webhookUrl": "https://example-host.com/webhook/slots",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar2": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_slots": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "post_slot": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delete_slot": {
+      "main": [
+        [
+          {
+            "node": "If3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If3": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar3": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "version-id-1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "instance-id-1"
+  },
+  "id": "workflow-id-1",
+  "tags": []
+}
